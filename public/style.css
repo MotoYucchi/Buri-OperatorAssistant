@@ -1,4 +1,4 @@
-﻿/* ==========================================================================
+/* ==========================================================================
    Call Assist AI - Enterprise Call Center Styling
    ========================================================================== */
 
@@ -1349,3 +1349,304 @@ body {
   border-left: none;
   box-shadow: 0 1px 2px rgba(37, 99, 235, 0.08), 0 4px 14px rgba(37, 99, 235, 0.06);
 }
+
+/* ==========================================================================
+   Chat Stream & Voice Control Styles (Speech-to-Text & Speaker Switch)
+   ========================================================================== */
+
+.chat-view {
+  background-color: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.chat-header {
+  background-color: #f8fafc;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.chat-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: monospace;
+  font-size: 12px;
+  color: #047857;
+  font-weight: 600;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+  animation: pulse-green 1.5s infinite;
+}
+
+.chat-clear-btn {
+  background: none;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  color: #64748b;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.chat-clear-btn:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.chat-body {
+  padding: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background-color: #fbfcfe;
+}
+
+.chat-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 86%;
+}
+
+.chat-row.customer {
+  align-self: flex-start;
+}
+
+.chat-row.operator {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.chat-who {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chat-row.customer .chat-who {
+  color: #2563eb;
+}
+
+.chat-row.operator .chat-who {
+  color: #059669;
+}
+
+.chat-bubble {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  word-break: break-word;
+}
+
+.chat-row.customer .chat-bubble {
+  background-color: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+  border-top-left-radius: 3px;
+}
+
+.chat-row.operator .chat-bubble {
+  background-color: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+  border-top-right-radius: 3px;
+}
+
+.chat-time {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+/* Voice & Speaker Controller */
+.voice-control-box {
+  background-color: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
+}
+
+.voice-control-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.speaker-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.speaker-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.speaker-btns {
+  display: flex;
+  background-color: #f1f5f9;
+  padding: 3px;
+  border-radius: 8px;
+  gap: 3px;
+}
+
+.speaker-tab-btn {
+  border: none;
+  background: transparent;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.2s;
+}
+
+.speaker-tab-btn.active.customer {
+  background-color: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.35);
+}
+
+.speaker-tab-btn.active.operator {
+  background-color: #059669;
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(5, 150, 105, 0.35);
+}
+
+.mic-action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-mic-record {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #1e293b;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-mic-record:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.btn-mic-record.recording {
+  background-color: #fee2e2;
+  border-color: #ef4444;
+  color: #b91c1c;
+  animation: pulse-red 1.5s infinite;
+}
+
+@keyframes pulse-red {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+  70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.stt-engine-badge {
+  font-size: 11px;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background-color: #f1f5f9;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+
+.stt-dot {
+  color: #10b981;
+}
+
+.chat-interim-box {
+  background-color: #fefce8;
+  border: 1px dashed #fde047;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #854d0e;
+}
+
+.input-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.input-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-tag-add {
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-tag-add:hover {
+  background-color: #e2e8f0;
+  color: #0f172a;
+}
+

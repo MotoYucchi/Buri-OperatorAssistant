@@ -12,7 +12,8 @@ const app = express();
 const DEFAULT_PORT = parseInt(process.env.PORT || '8080', 10);
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Safe JSON file reader (handles BOM cleanly)
@@ -30,6 +31,7 @@ function readJsonSafe(filePath) {
 // App configuration & state
 let activeApiKey = process.env.GEMINI_API_KEY || '';
 let activeModel = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+let activeSpeechApiKey = process.env.GOOGLE_SPEECH_API_KEY || 'AIzaSyCep2TUiUsKHLKa7Hv6gFtpkIoOlisGV4E';
 let actualRunningPort = DEFAULT_PORT;
 let lastUsedRedirectUri = null;
 
@@ -375,18 +377,22 @@ app.get('/api/health', async (req, res) => {
 
 // 2. Set API Key or Model dynamically
 app.post('/api/config', async (req, res) => {
-  const { apiKey, model } = req.body;
+  const { apiKey, model, speechApiKey } = req.body;
   if (apiKey !== undefined && apiKey.trim() !== '') {
     activeApiKey = apiKey.trim();
   }
   if (model) {
     activeModel = model.trim();
   }
+  if (speechApiKey !== undefined && speechApiKey.trim() !== '') {
+    activeSpeechApiKey = speechApiKey.trim();
+  }
   const auth = await getValidAuthDetails();
   res.json({
     success: true,
     authType: auth.type,
     model: activeModel,
+    hasSpeechKey: !!activeSpeechApiKey,
     message: '設定を更新しました。'
   });
 });
@@ -419,6 +425,137 @@ app.post('/api/analyze', async (req, res) => {
       error: `AI分析に失敗しました: ${err.message}`,
       hint: '通信状況またはAPI設定（APIキー、モデル名）を確認してください。'
     });
+  }
+});
+
+// 3.5. Google Cloud Speech-to-Text Endpoint
+app.post('/api/transcribe', async (req, res) => {
+  try {
+    const { audioContent, encoding, sampleRateHertz, mimeType, speaker } = req.body;
+    if (!audioContent) {
+      return res.status(400).json({ error: '音声データが送信されていません。' });
+    }
+
+    const key = activeSpeechApiKey || process.env.GOOGLE_SPEECH_API_KEY;
+    if (!key) {
+      return res.status(401).json({ error: 'Google Cloud Speech-to-Text APIキーが設定されていません。' });
+    }
+
+    let enc = encoding || 'WEBM_OPUS';
+    if (mimeType && mimeType.includes('wav')) enc = 'LINEAR16';
+    if (mimeType && mimeType.includes('ogg')) enc = 'OGG_OPUS';
+    if (mimeType && mimeType.includes('webm')) enc = 'WEBM_OPUS';
+    if (mimeType && mimeType.includes('mp3')) enc = 'MP3';
+
+    // Satisfy HTTP Referer restriction on API key
+    const host = req.get('host') || `localhost:${actualRunningPort}`;
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const referer = req.get('referer') || `${protocol}://${host}/`;
+
+    // Robust Base64 extraction (strips ANY data URL prefix regardless of codec parameters or MIME type)
+    let cleanAudio = audioContent;
+    if (typeof cleanAudio === 'string') {
+      if (cleanAudio.includes('base64,')) {
+        cleanAudio = cleanAudio.split('base64,')[1];
+      } else if (cleanAudio.includes(',')) {
+        cleanAudio = cleanAudio.split(',')[1];
+      }
+      cleanAudio = cleanAudio.trim().replace(/\s+/g, '');
+    }
+
+    if (!cleanAudio || cleanAudio.length < 50) {
+      return res.status(400).json({ error: '録音された音声データが小さすぎるか空です。もう一度お試しください。' });
+    }
+
+    let rate = sampleRateHertz;
+    if (!rate) {
+      if (enc === 'WEBM_OPUS' || enc === 'OGG_OPUS') {
+        rate = 48000;
+      } else {
+        rate = 16000;
+      }
+    }
+
+    const requestBody = {
+      config: {
+        encoding: enc,
+        sampleRateHertz: rate,
+        languageCode: 'ja-JP',
+        enableAutomaticPunctuation: true
+      },
+      audio: {
+        content: cleanAudio
+      }
+    };
+
+    console.log(`[Speech] Transcribing audio with encoding: ${enc}, rate: ${rate}Hz (Referer: ${referer})`);
+    const url = `https://speech.googleapis.com/v1/speech:recognize?key=${key}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Referer': referer
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      console.warn('[Speech] Error from Google Speech API:', data);
+      return res.status(response.status).json({
+        error: data.error?.message || '音声認識APIエラーが発生しました。',
+        details: data
+      });
+    }
+
+    const transcript = (data.results || [])
+      .map(r => r.alternatives?.[0]?.transcript || '')
+      .join(' ')
+      .trim();
+
+    console.log(`[Speech] Transcription result: "${transcript}" (Speaker: ${speaker || 'customer'})`);
+    res.json({
+      success: true,
+      transcript: transcript || '',
+      speaker: speaker || 'customer',
+      confidence: data.results?.[0]?.alternatives?.[0]?.confidence || null
+    });
+  } catch (err) {
+    console.error('[Speech Error]', err);
+    res.status(500).json({ error: '音声認識処理エラー: ' + err.message });
+  }
+});
+
+// 3.6. Test Speech-to-Text API Connectivity
+app.get('/api/transcribe/test', async (req, res) => {
+  try {
+    const key = activeSpeechApiKey || process.env.GOOGLE_SPEECH_API_KEY;
+    if (!key) {
+      return res.status(401).json({ connected: false, message: 'Google Cloud Speech APIキーが未設定です。' });
+    }
+    const host = req.get('host') || `localhost:${actualRunningPort}`;
+    const protocol = req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+    const referer = req.get('referer') || `${protocol}://${host}/`;
+
+    const testBuffer = Buffer.alloc(16000); // 0.5s silent PCM
+    const url = `https://speech.googleapis.com/v1/speech:recognize?key=${key}`;
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Referer': referer },
+      body: JSON.stringify({
+        config: { encoding: 'LINEAR16', sampleRateHertz: 16000, languageCode: 'ja-JP' },
+        audio: { content: testBuffer.toString('base64') }
+      })
+    });
+
+    if (r.ok) {
+      res.json({ success: true, connected: true, message: 'Google Cloud Speech-to-Text API 接続正常 (HTTP 200)' });
+    } else {
+      const txt = await r.text();
+      res.status(r.status).json({ success: false, connected: false, message: `APIエラー (${r.status}): ${txt}` });
+    }
+  } catch (e) {
+    res.status(500).json({ success: false, connected: false, message: '接続テスト失敗: ' + e.message });
   }
 });
 

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
@@ -85,35 +85,78 @@
             </button>
           </div>
         </div>
+        <!-- Live Call Conversation View (Chat Stream) -->
         <div class="chat-view">
-         <div class="chat-header">
-          <span>📞 現在の通話</span>
-           <span class="chat-timer"><span class="live-dot"></span>通話時間 02:34</span>
+          <div class="chat-header">
+            <span>📞 現在の通話タイムライン</span>
+            <div class="chat-header-actions">
+              <span class="chat-timer"><span class="live-dot"></span>通話中 <span id="chatTimerText">02:34</span></span>
+              <button type="button" class="chat-clear-btn" id="clearChatBtn" title="会話履歴をクリア">クリア</button>
+            </div>
           </div>
-            <div class="chat-body">
-             <div class="chat-row customer">
-               <div class="chat-who">👤 顧客</div>
-               <div class="chat-bubble">先日購入した商品が壊れた状態で届いたのですが、交換してもらえますか？</div>
+          <div class="chat-body" id="chatBody">
+            <div class="chat-row customer">
+              <div class="chat-who">👤 顧客</div>
+              <div class="chat-bubble">先日購入した商品が壊れた状態で届いたのですが、交換してもらえますか？</div>
               <div class="chat-time">10:24</div>
             </div>
             <div class="chat-row operator">
-             <div class="chat-who">🎧 オペレーター</div>
-             <div class="chat-bubble">確認いたします。少々お待ちください。</div>
-             <div class="chat-time">10:25</div>
-           </div>
-         </div>
+              <div class="chat-who">🎧 オペレーター</div>
+              <div class="chat-bubble">ご連絡ありがとうございます。商品の破損状態を確認の上、交換手続きをご案内いたします。</div>
+              <div class="chat-time">10:25</div>
+            </div>
+          </div>
         </div>
+
+        <!-- Voice & Speaker Input Controller -->
+        <div class="voice-control-box">
+          <div class="voice-control-top">
+            <div class="speaker-selector">
+              <span class="speaker-label">話者切替:</span>
+              <div class="speaker-btns">
+                <button type="button" class="speaker-tab-btn active customer" id="speakerCustomerBtn">
+                  <span>👤 顧客</span>
+                </button>
+                <button type="button" class="speaker-tab-btn operator" id="speakerOperatorBtn">
+                  <span>🎧 オペレーター</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="mic-action-group">
+              <button type="button" class="btn-mic-record" id="micRecordBtn" title="マイクをクリックして音声認識開始 / 停止">
+                <span class="mic-icon" id="micBtnIcon">🎙️</span>
+                <span class="mic-label" id="micBtnLabel">マイク録音開始</span>
+              </button>
+              <div class="stt-engine-badge" id="sttEngineBadge" title="Google Cloud Speech-to-Text API 接続中">
+                <span class="stt-dot">●</span> Google Cloud STT
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-interim-box hidden" id="chatInterimBox">
+            <span class="interim-speaker" id="interimSpeakerLabel">👤 顧客:</span>
+            <span class="interim-text" id="interimText">（聞き取り中...）</span>
+          </div>
+        </div>
+
         <!-- Text Input Area -->
         <div class="input-wrapper">
-          <label for="inquiryInput" class="input-label">
-            <span>顧客発話テキスト (自由編集可能)</span>
-            <span class="char-counter" id="charCount">0文字</span>
-          </label>
+          <div class="input-label-row">
+            <label for="inquiryInput" class="input-label">
+              <span>AI分析対象テキスト (手動追記・編集可能)</span>
+            </label>
+            <div class="input-tools">
+              <button type="button" class="btn-tag-add" id="addCustomerLineBtn" title="顧客発話として追加">+ 顧客</button>
+              <button type="button" class="btn-tag-add" id="addOperatorLineBtn" title="オペレーター発話として追加">+ オペレーター</button>
+              <span class="char-counter" id="charCount">0文字</span>
+            </div>
+          </div>
           <textarea 
             id="inquiryInput" 
             class="inquiry-textarea" 
-            placeholder="ここに顧客の問い合わせ内容を入力してください。上のデモ事例ボタンをクリックすると自動入力されます。"
-            rows="6"
+            placeholder="ここに顧客の問い合わせ内容を入力してください。マイクからの音声認識結果やデモ事例が自動反映されます。"
+            rows="5"
           ></textarea>
         </div>
 
@@ -125,51 +168,6 @@
             <span class="btn-text">AI分析を実行</span>
           </button>
         </div>
-        <!-- mic button -->
-        <h2>マイク入力・リアルタイム分類</h2>
-        <button id="startBtn">マイク開始</button>
-        <button id="stopBtn" disabled>停止</button>
-      
-        <script>
-          let ws;
-          let mediaRecorder;
-      
-          const startBtn = document.getElementById('startBtn');
-          const stopBtn = document.getElementById('stopBtn');
-      
-          startBtn.onclick = async () => {
-            // 1. WebSocketでNode.jsサーバーに接続
-            ws = new WebSocket('ws://localhost:8080');
-      
-            ws.onopen = async () => {
-              // 2. ブラウザ標準機能でマイク入力を取得（ソフト不要）
-              const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-              
-              // WebMフォーマットで音声ストリームを作成
-              mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-      
-              // 音声データが得られるたびにサーバーへ送信（250msごと）
-              mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-                  ws.send(event.data);
-                }
-              };
-      
-              mediaRecorder.start(250);
-              console.log('🎤 マイク送信中...');
-              startBtn.disabled = true;
-              stopBtn.disabled = false;
-            };
-          };
-      
-          stopBtn.onclick = () => {
-            if (mediaRecorder) mediaRecorder.stop();
-            if (ws) ws.close();
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-            console.log('🛑 停止しました');
-          };
-        </script>
         <!-- Knowledge Accumulation Stats -->
         <div class="knowledge-stats-box">
           <div class="stats-icon">💡</div>
@@ -360,11 +358,20 @@
         <div class="form-group">
           <label for="modalModelSelect">使用モデル</label>
           <select id="modalModelSelect" class="form-input">
-            <option value="gemini-2.5-flash">Gemini 2.5 Flash (推奨・最新高速)</option>
-            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-            <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+            <option value="gemini-3.7-flash">Gemini 3.7 Flash (最新・最高性能・推奨)</option>
+            <option value="gemini-3.6-flash">Gemini 3.6 Flash</option>
+            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
+            <option value="gemini-flash-latest">Gemini Flash Latest</option>
           </select>
+        </div>
+
+        <div class="form-group">
+          <label for="modalSpeechKey">Google Cloud Speech-to-Text API Key</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="password" id="modalSpeechKey" class="form-input" style="flex: 1;" placeholder="AIzaSy... (未入力の場合は.envから読み込み)">
+            <button type="button" class="btn-secondary" id="testSttBtn" style="white-space: nowrap; font-size: 12px;">STTテスト</button>
+          </div>
+          <small class="form-hint">※ 音声認識（文字起こし）に使用するGoogle Cloud STTのAPIキーです。</small>
         </div>
 
         <div class="oauth-section" id="oauthSection">

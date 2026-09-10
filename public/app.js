@@ -1,5 +1,12 @@
-﻿/**
+/**
  * Call Assist AI - Client Application Logic
+ * Featuring:
+ * - Real-time Gemini 3.7 Flash analysis
+ * - Google Cloud Speech-to-Text microphone input
+ * - Manual Customer / Operator speaker switching
+ * - Live Call Timeline Chat stream
+ * - 5 Preset Call Center Demo Cases
+ * - Human Escalation Alert & Knowledge accumulation
  */
 
 // 5 Demo Cases specified in requirements
@@ -28,17 +35,41 @@ const DEMO_CASES = {
 
 // State
 let currentAnalysisData = null;
-let apiHealth = { connected: false, model: "gemini-2.5-flash" };
+let apiHealth = { connected: false, model: "gemini-3.7-flash" };
 let callSeconds = 154; // Start at 02:34
 let stepTimer = null;
 
-// DOM Elements
+// Voice & Speaker State
+let currentSpeaker = "customer"; // 'customer' or 'operator'
+let isRecording = false;
+let mediaRecorder = null;
+let audioChunks = [];
+let liveRecognition = null;
+
+// DOM Elements: Input & Presets
 const inquiryInput = document.getElementById("inquiryInput");
 const charCount = document.getElementById("charCount");
 const analyzeBtn = document.getElementById("analyzeBtn");
 const clearBtn = document.getElementById("clearBtn");
 const presetButtons = document.querySelectorAll(".preset-btn");
 
+// DOM Elements: Voice & Chat Stream
+const speakerCustomerBtn = document.getElementById("speakerCustomerBtn");
+const speakerOperatorBtn = document.getElementById("speakerOperatorBtn");
+const micRecordBtn = document.getElementById("micRecordBtn");
+const micBtnIcon = document.getElementById("micBtnIcon");
+const micBtnLabel = document.getElementById("micBtnLabel");
+const sttEngineBadge = document.getElementById("sttEngineBadge");
+const chatBody = document.getElementById("chatBody");
+const clearChatBtn = document.getElementById("clearChatBtn");
+const chatTimerText = document.getElementById("chatTimerText");
+const chatInterimBox = document.getElementById("chatInterimBox");
+const interimSpeakerLabel = document.getElementById("interimSpeakerLabel");
+const interimText = document.getElementById("interimText");
+const addCustomerLineBtn = document.getElementById("addCustomerLineBtn");
+const addOperatorLineBtn = document.getElementById("addOperatorLineBtn");
+
+// DOM Elements: Results
 const loadingPanel = document.getElementById("loadingPanel");
 const emptyState = document.getElementById("emptyState");
 const resultsContainer = document.getElementById("resultsContainer");
@@ -47,7 +78,6 @@ const escalationBanner = document.getElementById("escalationBanner");
 const escalationReasonText = document.getElementById("escalationReasonText");
 const escalateActionBtn = document.getElementById("escalateActionBtn");
 
-// Result DOM elements
 const resCategory = document.getElementById("resCategory");
 const resUrgency = document.getElementById("resUrgency");
 const resUrgencyText = document.getElementById("resUrgencyText");
@@ -80,11 +110,13 @@ const closeSettingsBtn = document.getElementById("closeSettingsBtn");
 const cancelSettingsBtn = document.getElementById("cancelSettingsBtn");
 const saveSettingsBtn = document.getElementById("saveSettingsBtn");
 const modalApiKey = document.getElementById("modalApiKey");
+const modalSpeechKey = document.getElementById("modalSpeechKey");
 const modalModelSelect = document.getElementById("modalModelSelect");
 const modalStatusBox = document.getElementById("modalStatusBox");
 const modalOAuthProject = document.getElementById("modalOAuthProject");
 const modalOAuthClientId = document.getElementById("modalOAuthClientId");
 const googleAuthBtn = document.getElementById("googleAuthBtn");
+const testSttBtn = document.getElementById("testSttBtn");
 
 const toastContainer = document.getElementById("toastContainer");
 
@@ -117,12 +149,252 @@ function initCallTimer() {
     callSeconds++;
     const mins = String(Math.floor(callSeconds / 60)).padStart(2, "0");
     const secs = String(callSeconds % 60).padStart(2, "0");
-    callTimer.textContent = `${mins}:${secs}`;
+    const timeStr = `${mins}:${secs}`;
+    if (callTimer) callTimer.textContent = timeStr;
+    if (chatTimerText) chatTimerText.textContent = timeStr;
   }, 1000);
 }
 
+function formatCurrentTime() {
+  const d = new Date();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 // ----------------------------------------------------
-// Event Listeners
+// Chat View Timeline Functions
+// ----------------------------------------------------
+function addChatMessage(speaker, text) {
+  if (!chatBody || !text || !text.trim()) return;
+
+  const row = document.createElement("div");
+  row.className = `chat-row ${speaker}`;
+
+  const who = document.createElement("div");
+  who.className = "chat-who";
+  who.textContent = speaker === "customer" ? "👤 顧客" : "🎧 オペレーター";
+
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble";
+  bubble.textContent = text.trim();
+
+  const time = document.createElement("div");
+  time.className = "chat-time";
+  time.textContent = formatCurrentTime();
+
+  row.appendChild(who);
+  row.appendChild(bubble);
+  row.appendChild(time);
+
+  chatBody.appendChild(row);
+  chatBody.scrollTop = chatBody.scrollHeight;
+}
+
+function clearChatTimeline() {
+  if (!chatBody) return;
+  chatBody.innerHTML = "";
+  showToast("通話タイムラインをクリアしました", "info");
+}
+
+// ----------------------------------------------------
+// Speaker Selection Functions
+// ----------------------------------------------------
+function setSpeaker(speaker) {
+  currentSpeaker = speaker;
+  if (speaker === "customer") {
+    speakerCustomerBtn.className = "speaker-tab-btn active customer";
+    speakerOperatorBtn.className = "speaker-tab-btn operator";
+    if (interimSpeakerLabel) interimSpeakerLabel.textContent = "👤 顧客:";
+  } else {
+    speakerCustomerBtn.className = "speaker-tab-btn customer";
+    speakerOperatorBtn.className = "speaker-tab-btn active operator";
+    if (interimSpeakerLabel) interimSpeakerLabel.textContent = "🎧 オペレーター:";
+  }
+}
+
+// ----------------------------------------------------
+// Microphone & Google Cloud Speech-to-Text
+// ----------------------------------------------------
+async function toggleMicrophoneRecording() {
+  if (!isRecording) {
+    // Start Recording
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunks = [];
+
+      // Determine supported MIME type
+      let mimeType = "audio/webm;codecs=opus";
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+      }
+
+      mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunks.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        // Stop all tracks to release mic
+        stream.getTracks().forEach((track) => track.stop());
+
+        // Process recorded audio
+        const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+        if (audioBlob.size < 300) {
+          showToast("録音が短すぎるか音声が検出されませんでした。マイクに向かって話してから停止してください。", "error");
+          micRecordBtn.classList.remove("recording");
+          micBtnIcon.textContent = "🎙️";
+          micBtnLabel.textContent = "マイク録音開始";
+          if (chatInterimBox) chatInterimBox.classList.add("hidden");
+          return;
+        }
+        await sendAudioToGoogleSpeech(audioBlob);
+      };
+
+      mediaRecorder.start(250);
+      isRecording = true;
+
+      // Update UI to recording state
+      micRecordBtn.classList.add("recording");
+      micBtnIcon.textContent = "■";
+      micBtnLabel.textContent = "録音停止して認識";
+      if (chatInterimBox) {
+        chatInterimBox.classList.remove("hidden");
+        interimText.textContent = "（聞き取り中... お話しください）";
+      }
+
+      // Optional real-time preview if browser supports Web Speech API
+      initLiveSpeechPreview();
+
+      showToast(`🎙️ ${currentSpeaker === "customer" ? "顧客" : "オペレーター"}の声を受音中...`, "info");
+    } catch (err) {
+      console.error("Microphone access error:", err);
+      showToast("マイクのアクセスに失敗しました: " + err.message, "error");
+    }
+  } else {
+    // Stop Recording
+    stopMicrophoneRecording();
+  }
+}
+
+function stopMicrophoneRecording() {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    mediaRecorder.stop();
+  }
+  if (liveRecognition) {
+    try { liveRecognition.stop(); } catch (e) {}
+    liveRecognition = null;
+  }
+  isRecording = false;
+
+  // Update UI to processing state
+  micRecordBtn.classList.remove("recording");
+  micBtnIcon.textContent = "⏳";
+  micBtnLabel.textContent = "認識処理中...";
+}
+
+// Live interim speech preview using webkitSpeechRecognition if supported
+function initLiveSpeechPreview() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return;
+
+  try {
+    liveRecognition = new SpeechRecognition();
+    liveRecognition.lang = "ja-JP";
+    liveRecognition.interimResults = true;
+    liveRecognition.continuous = true;
+
+    liveRecognition.onresult = (event) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        interim += event.results[i][0].transcript;
+      }
+      if (interimText && interim) {
+        interimText.textContent = interim;
+      }
+    };
+
+    liveRecognition.onerror = () => {};
+    liveRecognition.start();
+  } catch (e) {
+    // Graceful fallback
+  }
+}
+
+// Send Audio Blob to Backend Google Cloud Speech-to-Text API
+async function sendAudioToGoogleSpeech(blob) {
+  try {
+    const reader = new FileReader();
+    reader.readAsDataURL(blob);
+
+    reader.onloadend = async () => {
+      let rawResult = reader.result;
+      let cleanBase64 = rawResult;
+      if (typeof rawResult === "string" && rawResult.includes(",")) {
+        cleanBase64 = rawResult.split(",")[1];
+      }
+
+      try {
+        const response = await fetch("/api/transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            audioContent: cleanBase64,
+            mimeType: blob.type,
+            speaker: currentSpeaker
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || "音声認識に失敗しました。");
+        }
+
+        const transcript = data.transcript ? data.transcript.trim() : "";
+
+        if (transcript && transcript !== "（音声を検出できませんでした）") {
+          // 1. Add to conversation chat timeline
+          addChatMessage(currentSpeaker, transcript);
+
+          // 2. Append or set into inquiry textarea
+          const speakerLabel = currentSpeaker === "customer" ? "顧客" : "オペレーター";
+          if (!inquiryInput.value.trim()) {
+            inquiryInput.value = transcript;
+          } else {
+            inquiryInput.value += `\n${speakerLabel}: ${transcript}`;
+          }
+
+          charCount.textContent = `${inquiryInput.value.length}文字`;
+          showToast(`✓ Google STT:「${transcript}」を認識しました`, "success");
+        } else {
+          showToast("音声がはっきりと聞き取れませんでした。もう一度お試しください。", "error");
+        }
+      } catch (err) {
+        console.error("Transcribe API Error:", err);
+        showToast("音声認識エラー: " + err.message, "error");
+      } finally {
+        // Reset UI button
+        micRecordBtn.classList.remove("recording");
+        micBtnIcon.textContent = "🎙️";
+        micBtnLabel.textContent = "マイク録音開始";
+        if (chatInterimBox) chatInterimBox.classList.add("hidden");
+      }
+    };
+  } catch (err) {
+    console.error("Audio conversion error:", err);
+    micRecordBtn.classList.remove("recording");
+    micBtnIcon.textContent = "🎙️";
+    micBtnLabel.textContent = "マイク録音開始";
+    if (chatInterimBox) chatInterimBox.classList.add("hidden");
+  }
+}
+
+// ----------------------------------------------------
+// Event Listeners Setup
 // ----------------------------------------------------
 function setupEventListeners() {
   // Text input length counter
@@ -142,20 +414,70 @@ function setupEventListeners() {
   clearBtn.addEventListener("click", () => {
     inquiryInput.value = "";
     charCount.textContent = "0文字";
-    presetButtons.forEach(btn => btn.classList.remove("active"));
+    presetButtons.forEach((btn) => btn.classList.remove("active"));
     inquiryInput.focus();
   });
 
+  // Clear Chat button
+  if (clearChatBtn) {
+    clearChatBtn.addEventListener("click", clearChatTimeline);
+  }
+
+  // Speaker Tab Buttons
+  if (speakerCustomerBtn) {
+    speakerCustomerBtn.addEventListener("click", () => setSpeaker("customer"));
+  }
+  if (speakerOperatorBtn) {
+    speakerOperatorBtn.addEventListener("click", () => setSpeaker("operator"));
+  }
+
+  // Microphone Recording Button
+  if (micRecordBtn) {
+    micRecordBtn.addEventListener("click", toggleMicrophoneRecording);
+  }
+
+  // Manual Tag Append Buttons
+  if (addCustomerLineBtn) {
+    addCustomerLineBtn.addEventListener("click", () => {
+      setSpeaker("customer");
+      if (!inquiryInput.value.trim()) {
+        inquiryInput.value = "顧客: ";
+      } else {
+        inquiryInput.value += "\n顧客: ";
+      }
+      charCount.textContent = `${inquiryInput.value.length}文字`;
+      inquiryInput.focus();
+    });
+  }
+
+  if (addOperatorLineBtn) {
+    addOperatorLineBtn.addEventListener("click", () => {
+      setSpeaker("operator");
+      if (!inquiryInput.value.trim()) {
+        inquiryInput.value = "オペレーター: ";
+      } else {
+        inquiryInput.value += "\nオペレーター: ";
+      }
+      charCount.textContent = `${inquiryInput.value.length}文字`;
+      inquiryInput.focus();
+    });
+  }
+
   // Demo Preset Buttons
-  presetButtons.forEach(btn => {
+  presetButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       const caseNum = btn.getAttribute("data-case");
-      presetButtons.forEach(b => b.classList.remove("active"));
+      presetButtons.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
 
       if (DEMO_CASES[caseNum]) {
-        inquiryInput.value = DEMO_CASES[caseNum].text;
+        const text = DEMO_CASES[caseNum].text;
+        inquiryInput.value = text;
         charCount.textContent = `${inquiryInput.value.length}文字`;
+
+        // Also add customer message to timeline
+        addChatMessage("customer", text);
+
         inquiryInput.focus();
         showToast(`事例 ${caseNum} (${DEMO_CASES[caseNum].title}) を入力しました`);
       }
@@ -207,19 +529,62 @@ function setupEventListeners() {
   document.getElementById("errorOpenSettingsBtn")?.addEventListener("click", openSettings);
   document.getElementById("errorRetryBtn")?.addEventListener("click", runAnalysis);
 
-  googleAuthBtn.addEventListener("click", async () => {
-    try {
-      const res = await fetch("/api/auth/google/url");
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        alert("OAuth URLの取得に失敗しました: " + (data.error || ""));
+  // Test STT Button
+  if (testSttBtn) {
+    testSttBtn.addEventListener("click", async () => {
+      testSttBtn.disabled = true;
+      testSttBtn.textContent = "テスト中...";
+      try {
+        const res = await fetch("/api/transcribe/test");
+        const data = await res.json();
+        if (data.connected) {
+          showToast(`✓ ${data.message}`, "success");
+        } else {
+          showToast(`⚠ ${data.message}`, "error");
+        }
+      } catch (err) {
+        showToast("STTテスト失敗: " + err.message, "error");
+      } finally {
+        testSttBtn.disabled = false;
+        testSttBtn.textContent = "STTテスト";
       }
-    } catch (e) {
-      alert("通信エラー: " + e.message);
-    }
-  });
+    });
+  }
+
+  // Google OAuth Login Button
+  if (googleAuthBtn) {
+    googleAuthBtn.addEventListener("click", async () => {
+      try {
+        const selectedUri = document.getElementById("modalRedirectUriSelect")?.value;
+        let url = "/api/auth/google/url";
+        if (selectedUri && selectedUri !== "auto") {
+          url += `?redirectUri=${encodeURIComponent(selectedUri)}`;
+        }
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.url) {
+          window.location.href = data.url;
+        } else {
+          alert("OAuth URLの取得に失敗しました: " + (data.error || ""));
+        }
+      } catch (e) {
+        alert("通信エラー: " + e.message);
+      }
+    });
+  }
+
+  const googleLogoutBtn = document.getElementById("googleLogoutBtn");
+  if (googleLogoutBtn) {
+    googleLogoutBtn.addEventListener("click", async () => {
+      try {
+        await fetch("/api/auth/google/logout", { method: "POST" });
+        showToast("Google認証情報をログアウトしました", "info");
+        await checkApiHealth();
+      } catch (e) {
+        showToast("ログアウト失敗: " + e.message, "error");
+      }
+    });
+  }
 }
 
 // ----------------------------------------------------
@@ -231,9 +596,30 @@ async function checkApiHealth() {
     const data = await res.json();
     apiHealth = data;
 
+    const oauthStatusTag = document.getElementById("oauthStatusTag");
+    const googleLogoutBtn = document.getElementById("googleLogoutBtn");
+
+    if (data.isOAuthAuthenticated) {
+      if (oauthStatusTag) {
+        oauthStatusTag.textContent = "認証済み (Google OAuth)";
+        oauthStatusTag.style.backgroundColor = "#dcfce7";
+        oauthStatusTag.style.color = "#15803d";
+      }
+      if (googleLogoutBtn) googleLogoutBtn.classList.remove("hidden");
+    } else {
+      if (oauthStatusTag) {
+        oauthStatusTag.textContent = "未認証";
+        oauthStatusTag.style.backgroundColor = "#f1f5f9";
+        oauthStatusTag.style.color = "#64748b";
+      }
+      if (googleLogoutBtn) googleLogoutBtn.classList.add("hidden");
+    }
+
     if (data.connected) {
       apiStatusDot.className = "status-indicator-dot connected";
-      apiStatusLabel.textContent = `Gemini API ● 接続中 (${data.model})`;
+      apiStatusLabel.textContent = data.authType === "oauth"
+        ? `Gemini API ● 接続中 (Google OAuth)`
+        : `Gemini API ● 接続中 (${data.model})`;
       apiStatusPill.style.borderColor = "#22c55e";
     } else {
       apiStatusDot.className = "status-indicator-dot disconnected";
@@ -244,14 +630,19 @@ async function checkApiHealth() {
     }
 
     if (data.hasOAuthSecret) {
-      document.getElementById("oauthSection").classList.remove("hidden");
-      modalOAuthProject.textContent = data.oauthProject || "なし";
-      modalOAuthClientId.textContent = data.oauthClientId || "なし";
+      document.getElementById("oauthSection")?.classList.remove("hidden");
+      if (modalOAuthProject) modalOAuthProject.textContent = data.oauthProject || "なし";
+      if (modalOAuthClientId) modalOAuthClientId.textContent = data.oauthClientId || "なし";
     }
 
-    modalStatusBox.textContent = data.message || (data.connected ? "接続は正常です。" : "APIキーまたはGoogle認証の設定が必要です。");
-    modalStatusBox.style.color = data.connected ? "#15803d" : "#b91c1c";
-    modalModelSelect.value = data.model || "gemini-2.5-flash";
+    if (modalStatusBox) {
+      modalStatusBox.textContent = data.message || (data.connected ? "接続は正常です。" : "APIキーまたはGoogle認証の設定が必要です。");
+      modalStatusBox.style.color = data.connected ? "#15803d" : "#b91c1c";
+    }
+
+    if (modalModelSelect) {
+      modalModelSelect.value = data.model || "gemini-3.7-flash";
+    }
   } catch (err) {
     apiStatusDot.className = "status-indicator-dot disconnected";
     apiStatusLabel.textContent = "Gemini API ● サーバー未接続";
@@ -269,6 +660,7 @@ function closeSettings() {
 
 async function saveSettings() {
   const key = modalApiKey.value.trim();
+  const speechKey = modalSpeechKey?.value.trim() || "";
   const model = modalModelSelect.value;
 
   saveSettingsBtn.disabled = true;
@@ -278,7 +670,7 @@ async function saveSettings() {
     const res = await fetch("/api/config", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ apiKey: key, model: model })
+      body: JSON.stringify({ apiKey: key, speechApiKey: speechKey, model: model })
     });
     const data = await res.json();
     showToast(data.message, "success");
@@ -347,7 +739,7 @@ async function runAnalysis() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         inquiryText: text,
-        model: apiHealth.model || "gemini-2.5-flash"
+        model: apiHealth.model || "gemini-3.7-flash"
       })
     });
 
@@ -379,7 +771,7 @@ function startLoadingStepAnimation() {
     document.getElementById("step2"),
     document.getElementById("step3")
   ];
-  steps.forEach(s => s.classList.remove("active"));
+  steps.forEach((s) => s.classList.remove("active"));
   steps[0].classList.add("active");
 
   let currentStep = 0;
@@ -459,7 +851,7 @@ function renderAnalysisResult(data, modelUsed) {
   }
 
   if (Array.isArray(data.relatedCases) && data.relatedCases.length > 0) {
-    data.relatedCases.forEach(c => {
+    data.relatedCases.forEach((c) => {
       const card = document.createElement("div");
       card.className = "case-card";
 
