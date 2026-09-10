@@ -1,0 +1,336 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Call Assist AI - コールセンター支援システム</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- System Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="brand-logo">
+        <span class="logo-icon">🎧</span>
+        <div class="brand-text">
+          <h1>Call Assist AI</h1>
+          <span class="system-sub">オペレーター支援システム (Dynamic)</span>
+        </div>
+      </div>
+      <div class="call-badge">
+        <span class="pulse-dot"></span>
+        <span class="call-status-text">通話中</span>
+        <span class="call-timer" id="callTimer">02:34</span>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div class="operator-profile">
+        <span class="avatar">👤</span>
+        <span class="operator-name">山田 太郎 (OP-402)</span>
+      </div>
+      <div class="api-status-pill" id="apiStatusPill" title="クリックしてAPI設定を開く">
+        <span class="status-indicator-dot" id="apiStatusDot"></span>
+        <span id="apiStatusLabel">Gemini API 確認中...</span>
+      </div>
+      <button class="icon-btn" id="openSettingsBtn" title="設定を開く">
+        ⚙️ 設定
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Container: 2-Column Professional Layout -->
+  <main class="main-layout">
+    
+    <!-- LEFT COLUMN: Inquiry Input & Demo Controller -->
+    <section class="column left-column">
+      <div class="section-card input-card">
+        <div class="card-header">
+          <div class="header-title">
+            <span class="card-icon">📋</span>
+            <h2>現在の問い合わせ</h2>
+          </div>
+          <span class="badge-sub">顧客との会話内容</span>
+        </div>
+
+        <!-- 5 Demo Presets Quick Bar -->
+        <div class="demo-presets-box">
+          <div class="presets-header">
+            <span class="presets-title">🎯 発表用デモ5事例（クリックで入力）</span>
+            <span class="presets-hint">※APIへ実際に問い合わせて動的判定します</span>
+          </div>
+          <div class="preset-buttons">
+            <button class="preset-btn" data-case="1" title="商品が壊れて届いた">
+              <span class="btn-num">事例 1</span>
+              <span class="btn-label">商品不良・破損</span>
+            </button>
+            <button class="preset-btn" data-case="2" title="請求金額が聞いていた額より高い">
+              <span class="btn-num">事例 2</span>
+              <span class="btn-label">料金・請求相違</span>
+            </button>
+            <button class="preset-btn" data-case="3" title="前回の問い合わせが未解決">
+              <span class="btn-num">事例 3</span>
+              <span class="btn-label">再問い合わせ</span>
+            </button>
+            <button class="preset-btn" data-case="4" title="前の担当者の説明と話が違う">
+              <span class="btn-num">事例 4</span>
+              <span class="btn-label">クレーム・説明相違</span>
+            </button>
+            <button class="preset-btn highlight-preset" data-case="5" title="どうしたらいいかわからない（人間対応必須）">
+              <span class="btn-num">事例 5</span>
+              <span class="btn-label">判断困難（要人間）</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Text Input Area -->
+        <div class="input-wrapper">
+          <label for="inquiryInput" class="input-label">
+            <span>顧客発話テキスト (自由編集可能)</span>
+            <span class="char-counter" id="charCount">0文字</span>
+          </label>
+          <textarea 
+            id="inquiryInput" 
+            class="inquiry-textarea" 
+            placeholder="ここに顧客の問い合わせ内容を入力してください。上のデモ事例ボタンをクリックすると自動入力されます。"
+            rows="6"
+          ></textarea>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="action-bar">
+          <button class="btn-secondary" id="clearBtn" title="入力をクリア">クリア</button>
+          <button class="btn-primary" id="analyzeBtn">
+            <span class="btn-icon">⚡</span>
+            <span class="btn-text">AI分析を実行</span>
+          </button>
+        </div>
+
+        <!-- Knowledge Accumulation Stats -->
+        <div class="knowledge-stats-box">
+          <div class="stats-icon">💡</div>
+          <div class="stats-info">
+            <div class="stats-label">組織ナレッジ蓄積状況</div>
+            <div class="stats-desc">オペレーターが修正・採用した最新知見を即時反映</div>
+          </div>
+          <div class="stats-count" id="kbCountBadge">6 件</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: AI Assist Output -->
+    <section class="column right-column">
+      
+      <!-- Human Escalation Alert (Critical Feature: Section 9) -->
+      <div class="escalation-banner hidden" id="escalationBanner">
+        <div class="escalation-header">
+          <div class="escalation-icon">⚠️</div>
+          <div class="escalation-title-area">
+            <h3>人間による判断が必要です</h3>
+            <p class="escalation-sub">AIだけでは適切な対応を判断できない可能性があります。熟練オペレーターまたは責任者へのエスカレーションを推奨します。</p>
+          </div>
+        </div>
+        <div class="escalation-body">
+          <div class="escalation-reason-box">
+            <span class="reason-label">AI判定理由:</span>
+            <span class="reason-text" id="escalationReasonText"></span>
+          </div>
+          <button class="btn-escalation" id="escalateActionBtn">
+            <span>🚨 責任者（SV）へ引き継ぐ</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- AI Loading State -->
+      <div class="loading-panel hidden" id="loadingPanel">
+        <div class="loading-spinner"></div>
+        <div class="loading-text-area">
+          <h3 class="loading-main-text" id="loadingMainText">AI分析中...</h3>
+          <div class="loading-steps">
+            <div class="step-item active" id="step1">
+              <span class="step-dot">●</span> 顧客発話内容の意図・感情を分析中
+            </div>
+            <div class="step-item" id="step2">
+              <span class="step-dot">●</span> Gemini APIと通信中 (最新Flashモデル)
+            </div>
+            <div class="step-item" id="step3">
+              <span class="step-dot">●</span> 過去事例ナレッジベース照合・推奨対応生成中
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error Box -->
+      <div class="error-panel hidden" id="errorPanel">
+        <div class="error-icon">❌</div>
+        <div class="error-content">
+          <h4 id="errorTitle">AI分析に失敗しました</h4>
+          <p id="errorMessage">通信状況またはAPI設定を確認してください。</p>
+          <div class="error-actions">
+            <button class="btn-sm" id="errorOpenSettingsBtn">API設定を確認する</button>
+            <button class="btn-sm btn-outline" id="errorRetryBtn">再試行</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty State (Initial) -->
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">🤖</div>
+        <h3>AI ASSIST 待機中</h3>
+        <p>左側の入力欄に問い合わせ内容を入力し、<br><strong>「AI分析を実行」</strong>ボタンを押してください。<br>または上部のデモ事例をクリックしてください。</p>
+      </div>
+
+      <!-- AI Results Container -->
+      <div class="results-container hidden" id="resultsContainer">
+        
+        <!-- Summary & Tags Card -->
+        <div class="section-card result-summary-card">
+          <div class="summary-top-row">
+            <div class="meta-item">
+              <span class="meta-label">問い合わせ分類</span>
+              <div class="category-tag" id="resCategory">-</div>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">緊急度</span>
+              <div class="urgency-badge" id="resUrgency">
+                <span class="urgency-dot">●</span>
+                <span id="resUrgencyText">中</span>
+              </div>
+            </div>
+            <div class="meta-item">
+              <span class="meta-label">推奨担当部署</span>
+              <div class="department-tag" id="resDepartment">-</div>
+            </div>
+          </div>
+          <div class="summary-text-row">
+            <span class="summary-label">内容要約:</span>
+            <span class="summary-content" id="resSummary">-</span>
+          </div>
+        </div>
+
+        <!-- Recommended Action Card (with Human Feedback Loop) -->
+        <div class="section-card action-card">
+          <div class="card-header">
+            <div class="header-title">
+              <span class="card-icon">💡</span>
+              <h3>AI推奨対応</h3>
+            </div>
+            <div class="action-feedback-status" id="feedbackStatus"></div>
+          </div>
+          
+          <!-- Normal View of Recommended Action -->
+          <div class="action-display-area" id="actionDisplayArea">
+            <div class="action-text-box" id="resActionText">
+              商品の状態と購入日を確認し、交換手続きを案内してください。
+            </div>
+            <div class="action-button-row">
+              <button class="btn-adopt" id="adoptActionBtn" title="この提案を採用して通話メモに転送">
+                <span>✓ この回答を採用</span>
+              </button>
+              <button class="btn-modify" id="modifyActionBtn" title="回答を修正して新しい事例として保存">
+                <span>✎ 回答を修正</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Edit Mode of Recommended Action -->
+          <div class="action-edit-area hidden" id="actionEditArea">
+            <div class="edit-label">オペレーターによる修正内容:</div>
+            <textarea id="editActionInput" class="edit-textarea" rows="4"></textarea>
+            <div class="edit-btn-row">
+              <button class="btn-save-kb" id="saveKbBtn">
+                <span>💾 修正内容を組織ナレッジに蓄積保存</span>
+              </button>
+              <button class="btn-cancel" id="cancelEditBtn">キャンセル</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cautions / Notes Card -->
+        <div class="section-card cautions-card">
+          <div class="card-header">
+            <div class="header-title">
+              <span class="card-icon">⚠️</span>
+              <h3>対応時の注意事項</h3>
+            </div>
+            <span class="card-sub-hint">確認した項目をチェック</span>
+          </div>
+          <ul class="cautions-list" id="resCautionsList">
+            <!-- Dynamically populated checklist -->
+          </ul>
+        </div>
+
+        <!-- Similar Past Cases Card -->
+        <div class="section-card cases-card">
+          <div class="card-header">
+            <div class="header-title">
+              <span class="card-icon">📚</span>
+              <h3>過去の類似対応事例</h3>
+            </div>
+            <span class="card-sub-hint" id="resModelBadge">AI動的選定</span>
+          </div>
+          <div class="cases-list" id="resCasesList">
+            <!-- Dynamically populated related cases -->
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay hidden" id="settingsModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Gemini API & システム設定</h3>
+        <button class="modal-close-btn" id="closeSettingsBtn">✕</button>
+      </div>
+      <div class="modal-body">
+        
+        <div class="form-group">
+          <label for="modalApiKey">Gemini API Key</label>
+          <input type="password" id="modalApiKey" class="form-input" placeholder="AIzaSy... (未入力の場合は.envから読み込み)">
+          <small class="form-hint">※ Google AI Studio または Google Cloud Console で取得したAPIキーを入力してください。</small>
+        </div>
+
+        <div class="form-group">
+          <label for="modalModelSelect">使用モデル</label>
+          <select id="modalModelSelect" class="form-input">
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash (推奨・最新高速)</option>
+            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+            <option value="gemini-3.7-flash">Gemini 3.7 Flash</option>
+          </select>
+        </div>
+
+        <div class="oauth-section" id="oauthSection">
+          <h4>Google Cloud 認証情報</h4>
+          <div class="oauth-info-box">
+            <p><strong>プロジェクト:</strong> <span id="modalOAuthProject">-</span></p>
+            <p><strong>クライアントID:</strong> <span id="modalOAuthClientId">-</span></p>
+          </div>
+          <button class="btn-google-auth" id="googleAuthBtn">
+            <span>🌐 Googleアカウントで認証する</span>
+          </button>
+        </div>
+
+        <div class="modal-status-box" id="modalStatusBox">
+          ステータス確認中...
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="cancelSettingsBtn">閉じる</button>
+        <button class="btn-primary" id="saveSettingsBtn">保存して接続テスト</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
