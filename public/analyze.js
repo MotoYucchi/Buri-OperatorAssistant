@@ -79,8 +79,8 @@ wss.on('connection', (ws) => {
   // --------------------------------------------------
   const request = {
     config: {
-      encoding: 'LINEAR16',   // 音声フォーマット。電話(Twilio等)の場合は 'MULAW' に変更
-      sampleRateHertz: 16000, // 電話の場合は 8000 に変更
+      encoding: 'MULAW',   // 音声フォーマット。電話(Twilio等)の場合は 'MULAW' に変更
+      sampleRateHertz: 8000, // 電話の場合は 8000 に変更
       languageCode: 'ja-JP',
     },
     interimResults: true, // 途中経過のテキストも取得するかどうか
