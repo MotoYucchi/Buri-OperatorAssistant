@@ -125,7 +125,51 @@
             <span class="btn-text">AI分析を実行</span>
           </button>
         </div>
-
+        <!-- mic button -->
+        <h2>マイク入力・リアルタイム分類</h2>
+        <button id="startBtn">マイク開始</button>
+        <button id="stopBtn" disabled>停止</button>
+      
+        <script>
+          let ws;
+          let mediaRecorder;
+      
+          const startBtn = document.getElementById('startBtn');
+          const stopBtn = document.getElementById('stopBtn');
+      
+          startBtn.onclick = async () => {
+            // 1. WebSocketでNode.jsサーバーに接続
+            ws = new WebSocket('ws://localhost:8080');
+      
+            ws.onopen = async () => {
+              // 2. ブラウザ標準機能でマイク入力を取得（ソフト不要）
+              const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+              
+              // WebMフォーマットで音声ストリームを作成
+              mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      
+              // 音声データが得られるたびにサーバーへ送信（250msごと）
+              mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                  ws.send(event.data);
+                }
+              };
+      
+              mediaRecorder.start(250);
+              console.log('🎤 マイク送信中...');
+              startBtn.disabled = true;
+              stopBtn.disabled = false;
+            };
+          };
+      
+          stopBtn.onclick = () => {
+            if (mediaRecorder) mediaRecorder.stop();
+            if (ws) ws.close();
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            console.log('🛑 停止しました');
+          };
+        </script>
         <!-- Knowledge Accumulation Stats -->
         <div class="knowledge-stats-box">
           <div class="stats-icon">💡</div>
